@@ -3,6 +3,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import scplode as sp
 import torch
 from torch.utils.data import Dataset, Subset
 
@@ -40,6 +41,7 @@ class PerturbationDataset(Dataset):
         should_yield_control_cells: bool = True,
         store_raw_basal: bool = False,
         barcode: bool = False,
+        use_scplode: bool = False,
         **kwargs,
     ):
         """
@@ -81,12 +83,16 @@ class PerturbationDataset(Dataset):
         self.store_raw_basal = store_raw_basal
         self.barcode = barcode
         self.output_space = kwargs.get("output_space", "gene")
+        self.use_scplode = use_scplode
 
         # Load metadata cache and open file
         self.metadata_cache = GlobalH5MetadataCache().get_cache(
             str(self.h5_path), pert_col, cell_type_key, control_pert, batch_col
         )
         self.h5_file = h5py.File(self.h5_path, "r")
+
+        if self.use_scplode:
+            self.scadata = sp.read_h5ad(self.h5_path)
 
         # Load cell barcodes if requested
         if self.barcode:
@@ -297,27 +303,31 @@ class PerturbationDataset(Dataset):
         Returns:
             1D FloatTensor of length self.n_genes
         """
-        attrs = dict(self.h5_file["X"].attrs)
-        if attrs["encoding-type"] == "csr_matrix":
-            indptr = self.h5_file["/X/indptr"]
-            start_ptr = indptr[idx]
-            end_ptr = indptr[idx + 1]
-            sub_data = torch.tensor(
-                self.h5_file["/X/data"][start_ptr:end_ptr], dtype=torch.float32
-            )
-            sub_indices = torch.tensor(
-                self.h5_file["/X/indices"][start_ptr:end_ptr], dtype=torch.long
-            )
-            counts = torch.sparse_csr_tensor(
-                torch.tensor([0], dtype=torch.long),
-                sub_indices,
-                sub_data,
-                (1, self.n_genes),
-            )
-            data = counts.to_dense().squeeze()
-        else:
-            row_data = self.h5_file["/X"][idx]
+        if self.use_scplode:
+            row_data = self.scadata.get([int(idx)])
             data = torch.tensor(row_data, dtype=torch.float32)
+        else:
+            attrs = dict(self.h5_file["X"].attrs)
+            if attrs["encoding-type"] == "csr_matrix":
+                indptr = self.h5_file["/X/indptr"]
+                start_ptr = indptr[idx]
+                end_ptr = indptr[idx + 1]
+                sub_data = torch.tensor(
+                    self.h5_file["/X/data"][start_ptr:end_ptr], dtype=torch.float32
+                )
+                sub_indices = torch.tensor(
+                    self.h5_file["/X/indices"][start_ptr:end_ptr], dtype=torch.long
+                )
+                counts = torch.sparse_csr_tensor(
+                    torch.tensor([0], dtype=torch.long),
+                    sub_indices,
+                    sub_data,
+                    (1, self.n_genes),
+                )
+                data = counts.to_dense().squeeze()
+            else:
+                row_data = self.h5_file["/X"][idx]
+                data = torch.tensor(row_data, dtype=torch.float32)
         return data
 
     def fetch_obsm_expression(self, idx: int, key: str) -> torch.Tensor:

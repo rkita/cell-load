@@ -51,6 +51,7 @@ class PerturbationDataModule(LightningDataModule):
         cell_sentence_len: int = 512,
         cache_perturbation_control_pairs: bool = False,
         drop_last: bool = False,
+        use_scplode: bool = False,
         **kwargs,  # missing perturbation_features_file  and store_raw_basal for backwards compatibility
     ):
         """
@@ -106,6 +107,7 @@ class PerturbationDataModule(LightningDataModule):
         self.normalize_counts = kwargs.get("normalize_counts", False)
         self.store_raw_basal = kwargs.get("store_raw_basal", False)
         self.barcode = kwargs.get("barcode", False)
+        self.use_scplode = use_scplode
 
         logger.info(
             f"Initializing DataModule: batch_size={batch_size}, workers={num_workers}, "
@@ -476,6 +478,7 @@ class PerturbationDataModule(LightningDataModule):
             output_space=self.output_space,
             store_raw_basal=self.store_raw_basal,
             barcode=self.barcode,
+            use_scplode=self.use_scplode,
         )
 
     def _setup_datasets(self):
